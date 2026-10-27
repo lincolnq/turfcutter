@@ -1,0 +1,23 @@
+# secrets
+.env
+
+# voter data and everything derived from it
+data/
+out/
+cache/
+*.zip
+*.xls
+
+# big generated artifacts
+*.graphml
+*.graphml.pkl
+*.osm.pbf
+
+# python / node
+__pycache__/
+.venv/
+node_modules/
+app/.wrangler/
+app/.dev.vars
+
+.DS_Store

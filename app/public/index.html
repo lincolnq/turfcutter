@@ -1,0 +1,233 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Turf cutter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;font:13px/1.4 system-ui,sans-serif}
+  #map{position:absolute;inset:0}
+  #search{position:absolute;top:10px;left:10px;z-index:3;width:320px}
+  #search input{width:100%;box-sizing:border-box;padding:9px 12px;border:0;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.3);font:inherit;font-size:14px}
+  #results{background:#fff;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.3);margin-top:4px;display:none;max-height:300px;overflow:auto}
+  #results div{padding:8px 12px;cursor:pointer;border-bottom:1px solid #eee}
+  #results div:hover{background:#f3f3f3}
+  #results small{color:#777;margin-left:6px}
+  #panel{position:absolute;top:10px;right:50px;width:460px;max-height:calc(100% - 20px);background:#fff;border-radius:6px;
+         box-shadow:0 1px 4px rgba(0,0,0,.3);display:flex;flex-direction:column;z-index:3}
+  #head{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #eee}
+  #head b{font-size:14px}
+  #toggle{cursor:pointer;user-select:none;font-size:20px;line-height:1;color:#444}
+  #panel.collapsed #body{display:none}
+  #body{overflow:auto;padding:8px 12px}
+  button{font:inherit;cursor:pointer}
+  .btn{padding:7px 12px;border:0;border-radius:6px;background:#2a6fdb;color:#fff;font-weight:600}
+  .btn.sec{background:#eee;color:#222}.btn.danger{background:#e6194b}.btn:disabled{opacity:.5;cursor:default}
+  #cutbox{border:1px solid #ddd;border-radius:6px;padding:8px 10px;margin:6px 0 10px;display:none}
+  #cutbox.open{display:block}
+  .row{display:grid;grid-template-columns:170px 1fr 54px;align-items:center;gap:8px;margin:7px 0}
+  .row label small{display:block;color:#777;font-size:11px;line-height:1.25}
+  .grp{border:1px solid #e3e3e3;border-radius:6px;padding:2px 10px 8px;margin:6px 0 10px}
+  .grp legend{color:#555;padding:0 4px;font-weight:600}
+  .grp .sum{text-align:right;color:#555;margin-top:4px}
+  .row input[type=range]{width:100%}
+  .row output{text-align:right;font-variant-numeric:tabular-nums}
+  #status{color:#666;margin:6px 0;min-height:18px}
+  #status.err{color:#c00}
+  .batch{margin:8px 0}
+  .bh{display:flex;justify-content:space-between;align-items:center;background:#f6f6f6;padding:6px 8px;border-radius:4px}
+  .bh small{color:#777}
+  .bh .x,.tr .x{background:none;border:0;color:#c00;font-size:14px;padding:0 4px}
+  table{border-collapse:collapse;width:100%} th,td{padding:2px 6px;text-align:right;font-variant-numeric:tabular-nums} th{border-bottom:1px solid #ddd;font-weight:600;color:#555}
+  td:first-child,th:first-child{text-align:left}
+  tbody tr{cursor:pointer} tbody tr:hover,tbody tr.hl{background:#ffe9a8}
+  .sw{display:inline-block;width:10px;height:10px;margin-right:5px;border-radius:2px;vertical-align:middle}
+  .preview .bh{background:#fff6d6;border:1px dashed #d9a400}
+  #hint{position:absolute;bottom:12px;left:12px;background:rgba(255,255,255,.95);padding:6px 10px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.2);z-index:3;color:#444}
+</style></head><body>
+<div id="map"></div>
+<div id="search"><input id="q" placeholder="Search an address or place…" autocomplete="off"><div id="results"></div></div>
+<div id="hint">Click the map to set a start point, then <b>Cut new turfs</b>.</div>
+<div id="panel">
+  <div id="head"><b>Turfs</b><div><button class="btn" id="cutbtn">Cut new turfs</button> <span id="toggle" title="collapse">▾</span></div></div>
+  <div id="body">
+    <div id="cutbox">
+      <div class="row"><label>Number of turfs<small>one per volunteer or pair</small></label><input type="range" id="k" min="1" max="60" value="10"><output>10</output></div>
+      <div class="row"><label>Doors per turf<small>target; turfs are cut once they reach it</small></label><input type="range" id="targetDoors" min="5" max="80" value="60"><output>60</output></div>
+      <div class="row"><label>Shift length cap<small>no turf is estimated to take more minutes than this</small></label><input type="range" id="shiftMin" min="30" max="360" step="5" value="240"><output>240</output></div>
+      <div class="row"><label>Turf distance cap<small>miles walked per turf, counted as twice the street length (down one side, back the other)</small></label><input type="range" id="maxWalkMi" min="0.5" max="8" step="0.25" value="5"><output>5</output></div>
+      <details id="adv"><summary style="cursor:pointer;color:#555;margin:4px 0">Advanced</summary>
+      <fieldset class="grp"><legend>Time per door</legend>
+      <div class="row"><label>Per knock (min)<small>walk up, knock, wait, note the result; paid at every door</small></label><input type="range" id="knockMin" min="0.5" max="3" step="0.25" value="0.5"><output>0.5</output></div>
+      <div class="row"><label>Answer rate (%)<small>share of doors where someone answers</small></label><input type="range" id="answerPct" min="10" max="80" step="5" value="15"><output>15</output></div>
+      <div class="row"><label>Conversation (min)<small>average time at a door that answers</small></label><input type="range" id="talkMin" min="1" max="10" step="0.5" value="4"><output>4</output></div>
+      <div class="sum">= <b id="advsum"></b> per door on average</div>
+      </fieldset>
+      <div class="row"><label>Walking pace (mph)<small>between houses, with stops</small></label><input type="range" id="paceMph" min="1.5" max="3.5" step="0.1" value="2.8"><output>2.8</output></div>
+      <div class="row"><label>Drive-to-start turfs<small>include turfs more than a 10-minute walk from the start</small></label><input type="checkbox" id="driveOk" checked><span></span></div>
+      <div class="row"><label>Longest empty walk (ft)<small>street with no target doors a turf may walk through to reach more</small></label><input type="range" id="maxConnectorFt" min="200" max="1600" step="50" value="750"><output>750</output></div>
+      </details>
+      <div class="row"><label>Label</label><input type="text" id="label" placeholder="optional" style="grid-column:2/4;padding:4px 6px"></div>
+      <div id="status"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="cancel">Cancel</button><button class="btn" id="commit" disabled>Commit</button></div>
+    </div>
+    <label style="display:block;margin:4px 0 6px;color:#555"><input type="checkbox" id="showdoors" checked> show target doors (<span style="color:#999">●</span> unassigned)</label>
+    <div id="list"></div>
+  </div>
+</div>
+<script>
+const PALETTE = ["#e6194b","#3cb44b","#4363d8","#f58231","#911eb4","#42d4f4","#f032e6","#bfef45","#fabed4","#469990","#9A6324","#800000","#808000","#000075","#dcbeff","#aaffc3"];
+const colorFor = id => PALETTE[(Math.abs(id) * 7) % PALETTE.length];
+const $ = s => document.querySelector(s);
+const api = (path, opts) => fetch(path, opts).then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
+
+// start where the user left off; on first visit, fit the loaded data
+const saved = JSON.parse(localStorage.getItem("turf-view") || "null");
+const map = new maplibregl.Map({ container: "map", style: "https://tiles.openfreemap.org/styles/positron",
+  center: saved ? saved.center : [0, 0], zoom: saved ? saved.zoom : 1 });
+if (!saved) api("/api/status").then(s => { if (s.bbox && isFinite(s.bbox[0])) map.fitBounds([[s.bbox[0], s.bbox[1]], [s.bbox[2], s.bbox[3]]], { padding: 40, duration: 0 }); });
+map.on("moveend", () => localStorage.setItem("turf-view", JSON.stringify({ center: map.getCenter().toArray(), zoom: map.getZoom() })));
+map.addControl(new maplibregl.NavigationControl());
+let root = null, rootMarker = null, preview = null, batches = [], doorsFC = { type: "FeatureCollection", features: [] };
+let hovered = null, previewTimer = null, cutOpen = false;
+
+const empty = () => ({ type: "FeatureCollection", features: [] });
+map.on("load", async () => {
+  map.addSource("barriers", { type: "geojson", data: empty() });
+  map.addLayer({ id: "barriers", type: "line", source: "barriers", paint: { "line-color": "#444", "line-width": 3, "line-opacity": .3 } });
+  map.addSource("doors", { type: "geojson", data: empty(), promoteId: "id" });
+  map.addLayer({ id: "doors", type: "circle", source: "doors", paint: { "circle-color": ["get", "color"],
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, ["case", ["boolean", ["feature-state", "hover"], false], 2.5, 1.5], 13, ["case", ["boolean", ["feature-state", "hover"], false], 4.5, 3], 16, ["case", ["boolean", ["feature-state", "hover"], false], 8, 5]],
+    "circle-stroke-color": "#fff", "circle-stroke-width": 1, "circle-opacity": ["case", ["==", ["get", "turf"], null], .7, 1] } });
+  map.addSource("turfs", { type: "geojson", data: empty(), promoteId: "id" });
+  map.addLayer({ id: "turf-casing", type: "line", source: "turfs", paint: { "line-color": "#fff", "line-width": 9 }, layout: { "line-cap": "round", "line-join": "round" } }, "doors");
+  const linePaint = { "line-color": ["get", "color"], "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 9, 5], "line-opacity": .9 };
+  map.addLayer({ id: "turfs", type: "line", source: "turfs", filter: ["!", ["get", "preview"]], paint: linePaint, layout: { "line-cap": "round", "line-join": "round" } }, "doors");
+  map.addLayer({ id: "turfs-preview", type: "line", source: "turfs", filter: ["get", "preview"],
+    paint: { ...linePaint, "line-dasharray": [2, 1.2] }, layout: { "line-cap": "round", "line-join": "round" } }, "doors");
+  api("/api/barriers").then(b => map.getSource("barriers").setData(b));
+  map.on("moveend", refreshView); refreshView();
+  map.on("click", e => {
+    const hit = map.queryRenderedFeatures(e.point, { layers: ["turfs", "turfs-preview", "doors"] });
+    if (hit.length) { const p = hit[0].properties; const popup = hit[0].layer.id === "doors"
+      ? `${p.addr}<br>${p.nv} voter(s): ${p.voters}${p.turf ? "<br>in turf " + p.turf : ""}`
+      : `<b>${p.label}</b><br>${p.doors} doors · ${p.est_walk_mi} mi · ~${p.est_min} min · ${p.mode} to start`;
+      new maplibregl.Popup().setLngLat(e.lngLat).setHTML(popup).addTo(map); return; }
+    setRoot(e.lngLat.lat, e.lngLat.lng);
+  });
+  for (const l of ["turfs", "turfs-preview", "doors"]) {
+    map.on("mousemove", l, e => { map.getCanvas().style.cursor = "pointer"; if (l !== "doors") setHover(e.features[0].properties.id); });
+    map.on("mouseleave", l, () => { map.getCanvas().style.cursor = ""; setHover(null); });
+  }
+});
+
+function setRoot(lat, lon) {
+  root = { lat, lon };
+  if (!rootMarker) { rootMarker = new maplibregl.Marker({ color: "#111", draggable: true }).setLngLat([lon, lat]).addTo(map);
+    rootMarker.on("dragend", () => { const p = rootMarker.getLngLat(); root = { lat: p.lat, lon: p.lng }; schedulePreview(); }); }
+  else rootMarker.setLngLat([lon, lat]);
+  $("#hint").textContent = `Start: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  schedulePreview();
+}
+
+// ---- viewport data -----------------------------------------------------
+let viewTimer = null;
+function refreshView() { clearTimeout(viewTimer); viewTimer = setTimeout(loadView, 250); }
+async function loadView() {
+  const b = map.getBounds(); const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
+  const z = map.getZoom();
+  const [t, d] = await Promise.all([api("/api/turfs" + (z >= 10 ? "?bbox=" + bbox : "")), z >= 10 ? api("/api/doors?bbox=" + bbox) : Promise.resolve(empty())]);
+  batches = t.batches; doorsFC = d; render();
+}
+
+function render() {
+  const turfColor = new Map(), turfLabel = new Map();
+  const feats = [];
+  const add = (t, isPreview) => {
+    const col = colorFor(t.id); turfColor.set(t.id, col);
+    for (const id of t.door_ids) turfColor.set("d" + id, col);
+    feats.push({ type: "Feature", id: t.id, geometry: t.geometry, properties: { ...t, geometry: undefined, door_ids: undefined, color: col, preview: !!isPreview,
+      label: isPreview ? `Preview turf ${t.turf_no}` : `Turf ${t.turf_no} (batch ${t.batch_id})` } });
+  };
+  for (const b of batches) for (const t of b.turfs) add(t, false);
+  if (preview) for (const t of preview.turfs) add({ ...t, id: -t.turf_no }, true);
+  map.getSource("turfs").setData({ type: "FeatureCollection", features: feats });
+  const pd = new Set(preview ? preview.turfs.flatMap(t => t.door_ids) : []);
+  for (const f of doorsFC.features) { const c = turfColor.get("d" + f.properties.id); f.properties.color = c ?? "#9a9a9a"; if (pd.has(f.properties.id)) f.properties.turf = "preview"; }
+  map.getSource("doors").setData($("#showdoors").checked ? doorsFC : empty());
+  renderList();
+}
+
+function renderList() {
+  const rows = t => t.map(x => { const id = typeof x.id === "number" ? x.id : -x.turf_no; return `<tr data-id="${id}"><td><span class="sw" style="background:${colorFor(id)}"></span>${x.turf_no}</td><td>${x.doors}</td><td>${x.est_walk_mi}</td><td>${x.est_min}</td><td>${x.doors_per_mi}</td><td>${x.mode}</td><td>${id > 0 ? `<button class="x" data-del-turf="${id}" title="delete turf">✕</button>` : ""}</td></tr>`; }).join("");
+  const table = t => `<table><thead><tr><th>turf</th><th>doors</th><th>miles</th><th>min</th><th>doors/mi</th><th>start</th><th></th></tr></thead><tbody>${rows(t)}</tbody></table>`;
+  let html = "";
+  if (preview) html += `<div class="batch preview"><div class="bh"><b>Preview</b><small>${preview.turfs.length} turfs · ${preview.orphans} doors set aside · ${preview.ms} ms</small></div>${table(preview.turfs)}</div>`;
+  if (!batches.length && !preview) html += `<div style="color:#777;padding:10px 0">No committed turfs in view.</div>`;
+  for (const b of batches) html += `<div class="batch"><div class="bh"><div><b>${b.label}</b><br><small>${new Date(b.created_at).toLocaleString()} · ${b.turfs.length} turfs in view</small></div>
+    <div><a href="/api/batch/${b.id}/vanids.zip" title="one VAN ID list per turf, for VAN Upload List" style="margin-right:8px">VAN lists</a><a href="/api/batch/${b.id}/export.csv" title="full door list" style="margin-right:8px">csv</a><button class="x" data-del-batch="${b.id}" title="delete whole batch">✕</button></div></div>${table(b.turfs)}</div>`;
+  $("#list").innerHTML = html;
+  document.querySelectorAll("#list tbody tr").forEach(tr => {
+    const id = Number(tr.dataset.id);
+    tr.onclick = e => { if (e.target.closest("button")) return; const f = allTurfs().find(t => t.id == id); if (f) map.fitBounds([[f.bbox[0], f.bbox[1]], [f.bbox[2], f.bbox[3]]], { padding: 80, maxZoom: 17 }); };
+    tr.onmouseenter = () => setHover(id); tr.onmouseleave = () => setHover(null);
+  });
+  document.querySelectorAll("[data-del-batch]").forEach(b => b.onclick = async () => { if (confirm("Delete this whole batch of turfs?")) { await api("/api/batch/" + b.dataset.delBatch, { method: "DELETE" }); loadView(); } });
+  document.querySelectorAll("[data-del-turf]").forEach(b => b.onclick = async () => { if (confirm("Delete this turf?")) { await api("/api/turf/" + b.dataset.delTurf, { method: "DELETE" }); loadView(); } });
+}
+const allTurfs = () => [...batches.flatMap(b => b.turfs), ...(preview ? preview.turfs.map(t => ({ ...t, id: -t.turf_no })) : [])];
+
+function setHover(id) {
+  if (hovered === id) return;
+  const rowOf = i => document.querySelector(`#list tr[data-id="${i}"]`);
+  if (hovered !== null) { map.setFeatureState({ source: "turfs", id: hovered }, { hover: false }); rowOf(hovered)?.classList.remove("hl"); }
+  hovered = id;
+  if (id !== null) { map.setFeatureState({ source: "turfs", id }, { hover: true }); const r = rowOf(id); r?.classList.add("hl"); r?.scrollIntoView({ block: "nearest" }); }
+}
+
+// ---- cutting ----------------------------------------------------------
+const params = () => {
+  const minPerDoor = +$("#knockMin").value + (+$("#answerPct").value / 100) * +$("#talkMin").value;
+  $("#advsum").textContent = `${minPerDoor.toFixed(1)} min`;
+  return { k: +$("#k").value, shiftMin: +$("#shiftMin").value, targetDoors: +$("#targetDoors").value,
+    minPerDoor, walkMPerMin: +$("#paceMph").value * 1609.34 / 60, maxWalkM: +$("#maxWalkMi").value * 1609.34,
+    maxConnectorM: Math.round(+$("#maxConnectorFt").value * 0.3048), driveOk: $("#driveOk").checked };
+};
+params();
+document.querySelectorAll("#cutbox input").forEach(i => i.setAttribute("autocomplete", "off"));
+document.querySelectorAll("#cutbox input[type=range]").forEach(r => { r.nextElementSibling.value = r.value;   // browsers restore slider positions on reload
+  r.oninput = () => { r.nextElementSibling.value = r.value;
+  schedulePreview(); }; });
+$("#driveOk").onchange = schedulePreview;
+$("#cutbtn").onclick = () => { cutOpen = !cutOpen; $("#cutbox").classList.toggle("open", cutOpen); $("#panel").classList.remove("collapsed");
+  if (cutOpen) { if (!root) { const c = map.getCenter(); setRoot(c.lat, c.lng); } else schedulePreview(); } else clearPreview(); };
+$("#cancel").onclick = () => { cutOpen = false; $("#cutbox").classList.remove("open"); clearPreview(); };
+function clearPreview() { preview = null; $("#commit").disabled = true; $("#status").textContent = ""; render(); }
+function schedulePreview() { if (!cutOpen || !root) return; clearTimeout(previewTimer); previewTimer = setTimeout(runPreview, 450); }
+let previewSeq = 0;
+async function runPreview() {
+  const seq = ++previewSeq; $("#status").className = ""; $("#status").textContent = "Cutting…"; $("#commit").disabled = true;
+  try {
+    const r = await api("/api/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ lat: root.lat, lon: root.lon, params: params() }) });
+    if (seq !== previewSeq) return;
+    preview = r; $("#status").textContent = `${r.turfs.length} turfs · ${r.orphans} doors set aside · ${r.ms} ms`; $("#commit").disabled = false;
+  } catch (e) { if (seq !== previewSeq) return; preview = null; $("#status").className = "err"; $("#status").textContent = e.message; }
+  render();
+}
+$("#commit").onclick = async () => {
+  if (!preview) return; $("#commit").disabled = true; $("#status").textContent = "Committing…";
+  try { await api("/api/commit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preview_id: preview.preview_id, label: $("#label").value }) });
+    preview = null; $("#status").textContent = "Committed."; $("#label").value = ""; loadView(); }
+  catch (e) { $("#status").className = "err"; $("#status").textContent = e.message; $("#commit").disabled = false; }
+};
+$("#toggle").onclick = e => { const c = $("#panel").classList.toggle("collapsed"); e.target.textContent = c ? "▸" : "▾"; };
+$("#showdoors").onchange = render;
+
+// ---- search --------------------------------------------------------------
+let searchTimer = null;
+$("#q").oninput = () => { clearTimeout(searchTimer); const q = $("#q").value.trim(); if (q.length < 3) { $("#results").style.display = "none"; return; }
+  searchTimer = setTimeout(async () => { const r = await api("/api/search?q=" + encodeURIComponent(q)); const box = $("#results");
+    box.innerHTML = r.results.map((x, i) => `<div data-i="${i}">${x.label}<small>${x.kind}</small></div>`).join("") || `<div>no results</div>`; box.style.display = "block";
+    box.querySelectorAll("[data-i]").forEach(d => d.onclick = () => { const x = r.results[d.dataset.i]; box.style.display = "none"; $("#q").value = x.label;
+      map.jumpTo({ center: [x.lon, x.lat], zoom: Math.max(map.getZoom(), 15) }); setRoot(x.lat, x.lon); }); }, 300); };
+document.addEventListener("click", e => { if (!e.target.closest("#search")) $("#results").style.display = "none"; });
+</script></body></html>

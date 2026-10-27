@@ -1,0 +1,24 @@
+name = "turf"
+main = "src/worker.ts"
+compatibility_date = "2025-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[assets]
+directory = "./public"
+
+[[r2_buckets]]
+binding = "DATA"
+bucket_name = "turf-data"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "turf"
+database_id = "replace-after-wrangler-d1-create"
+
+[[durable_objects.bindings]]
+name = "CUTTER"
+class_name = "CutterDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CutterDO"]

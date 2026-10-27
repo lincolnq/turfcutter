@@ -1,0 +1,13 @@
+osmnx>=2.0
+pyrosm>=0.6
+networkx>=3.3
+numpy>=2.0
+pandas>=2.2
+geopandas>=1.0
+shapely>=2.0
+pyproj>=3.6
+scipy
+matplotlib
+requests
+usaddress
+protobuf<7
