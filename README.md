@@ -5,6 +5,12 @@ walking turfs that never cross a big road, keep dead-ends with their street,
 fit a shift, and skip streets with no target doors. Built for a targeted voter
 universe in Alaska, but nothing in the code is Alaska-specific.
 
+![30 turfs cut from one start point in Midtown Anchorage (synthetic doors)](docs/screenshot.jpg)
+
+How this was built: [PROMPTS.md](PROMPTS.md) is the full prompt log with
+commentary; [RECREATE.md](RECREATE.md) is a guide to getting to the same
+place with an AI assistant.
+
 Two parts:
 
 - **`app/`** — the thing you run: a TypeScript cutter inside a Cloudflare Durable
